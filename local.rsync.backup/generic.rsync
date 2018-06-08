@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+
+# Simple wrapper around rsync to use with external HDDs
+# Tested on OS X 10.13.5 & Win 8 with Cygwin
+
+PATH="/bin:/usr/bin"
+
+## fancy stuff
+red='\033[0;31m'
+green='\033[0;32m'
+none='\033[0m'
+## end fancy stuff
+
+uname=$(uname)
+rsync_log_num="0"
+rsync_log_name="rsync.${rsync_log_num}.log" # --log-file=
+rsync_src_list="dir.list.txt"
+rsync_opts=("-azvpPr --no-relative")
+extra_rsync_opts=""
+
+usage () {
+	echo "
+***********************************************************
+- Sources expected from a file.
+- At a minimum, a destination is needed.
+- Dirs ending in / will not be copied into destination.
+	- But their content will.
+- Dirs ending without / will be copied into destination.
+	- Along with their contents
+
+Default options:
+	rsync options: -azvpPr --no-relative
+	log filename: rsync.<number>.log ## Iterates on each run.
+	src filename: dir.list.txt 
+	
+Added options:
+	-s <path to src list>
+	-d <path to dir>
+	-o <additional rsync opts> ## Not extensively tested
+
+$0 -d /some/where/over/the/rainbow
+$0 -s foo.txt -d /some/where/over/the/rainbow
+$0 -o '-n' -s foo.txt -d /some/where/over/the/rainbow
+***********************************************************
+"
+} 
+
+exit_status () {
+	exit_code="$?"
+	if [[ $exit_code -eq 0 ]] ; then
+		echo -e "${green}SUCCESS!${none}"
+	else
+		echo -e "${red}ERROR:${none} Exit status was ${exit_code}."
+		exit $exit_code
+	fi
+}
+
+rsync_log_check () {
+	# Check if log file exists, create/iterate as necessary.
+	# There is currently no automated clean up!
+	if [[ -f "$rsync_log_name" ]] ; then
+		until [[ ! -f "$rsync_log_name" ]] ; do
+			((rsync_log_num++))
+			rsync_log_name="rsync.${rsync_log_num}.log"
+		done
+	else
+		echo "[log] $rsync_log_name doesn't exist, creating."
+		touch $rsync_log_name
+		exit_status
+	fi
+	echo "[log] The current log is: ${rsync_log_name}."
+	rsync_opts+=("--log-file=$rsync_log_name")
+}
+
+rsync_src_check () {
+	if [[ -n "$rsync_src_list" ]] ; then
+		if [[ -s "$rsync_src_list" ]] ; then
+			echo "[src] Using $rsync_src_list"
+			rsync_opts+=("--files-from=$rsync_src_list")
+		else
+			echo "[src] list does not exist or is empty."
+			exit 1
+		fi
+	else
+		if [[ -s "$rsync_src_list" ]] ; then
+			echo "[src] Using $rsync_src_list"
+			rsync_opts+=("--files-from=$rsync_src_list")
+		else
+			echo "[src] list does not exist or is empty."
+			exit 1
+		fi
+	fi
+}
+
+rsync_dst_check () {
+	if [[ -n "$rsync_dst_list" ]] ; then
+		if [[ -d "$rsync_dst_list" ]] ; then
+			echo "[dst] Using $rsync_dst_list"
+		else
+			echo "[dst] $rsync_dst_list does not appear to be a valid dst."	
+			exit 1
+		fi
+	else
+		echo "[dst] You must enter a destination directory."
+		usage
+		exit 1
+	fi
+}
+extra_rsync_opts_check () {
+	if [[ -n "$extra_rsync_opts" ]] ; then
+		rsync_opts+=("$extra_rsync_opts")
+		echo "[opts] Adding $extra_rsync_opts to the rsync string."
+	fi
+}
+
+rsync_exec () {
+	## For testing
+	# echo "rsync opts: ${rsync_opts[*]}"
+	# echo "extra rsync opts: $extra_rsync_opts"
+	# echo "rsync src list: $rsync_src_list"
+	# echo "rsync dst list: $rsync_dst_list"
+	# echo "final syntax: rsync ${rsync_opts[*]} / $rsync_dst_list"
+	## For testing
+	echo "[sync] syncing $rsync_src"
+	rsync ${rsync_opts[*]} / $rsync_dst_list
+	exit_status
+}
+
+if [[ $# -lt 1 ]] ; then
+	usage
+	exit 1
+fi
+
+if [[ "$uname" == "Darwin" ]] || [[ "$uname" == "CYGWIN_NT-6.3" ]] ; then
+	echo "[os] OS version checks out."
+else
+	echo "[os] This script has only been tested on Win 8.1 & OSX 10.13.5"
+	echo "[os] The OS versions may need to be updated."
+fi
+## not the case given snoop
+while getopts s:d:o:h OPTION ; do
+	case "$OPTION" in
+		s)	rsync_src_list="$OPTARG" ;;
+		d)	rsync_dst_list="$OPTARG" ;;
+		o)	extra_rsync_opts="$OPTARG" ;;
+		h)	usage
+			exit 0 ;;
+		:|*) usage
+			exit 1 ;;
+	esac
+done
+extra_rsync_opts_check
+rsync_src_check
+rsync_dst_check
+rsync_log_check
+echo "[sync] Beginning sync..."
+rsync_exec
